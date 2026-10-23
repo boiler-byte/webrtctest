@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC PeerJS Test</title>
+    <!-- Import der PeerJS-Bibliothek -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 800px; margin: auto; }
+        .video-container { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+        video { width: 100%; max-width: 360px; background: #000; border-radius: 8px; }
+        .controls { margin-top: 20px; padding: 15px; background: #f0f0f0; border-radius: 8px; }
+        input, button { padding: 8px 12px; margin: 5px; font-size: 16px; }
+        #status { margin-top: 10px; font-weight: bold; color: #333; }
+        #my-id { color: #0066cc; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>WebRTC PeerJS Test</h1>
+    <p>Ihre ID: <span id="my-id">Wird generiert...</span></p>
+    
+    <div class="controls">
+        <input type="text" id="peer-id-input" placeholder="Peer-ID eingeben" style="width: 200px;">
+        <button id="call-btn">Anrufen</button>
+        <button id="hangup-btn" disabled>Auflegen</button>
+    </div>
+    <div id="status">Status: Initialisierung...</div>
+
+    <div class="video-container">
+        <div>
+            <h3>Lokales Bild</h3>
+            <video id="local-video" autoplay muted playsinline></video>
+        </div>
+        <div>
+            <h3>Entferntes Bild</h3>
+            <video id="remote-video" autoplay playsinline></video>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            const myIdSpan = document.getElementById('my-id');
+            const peerIdInput = document.getElementById('peer-id-input');
+            const callBtn = document.getElementById('call-btn');
+            const hangupBtn = document.getElementById('hangup-btn');
+            const statusDiv = document.getElementById('status');
+            const localVideo = document.getElementById('local-video');
+            const remoteVideo = document.getElementById('remote-video');
+
+            let peer = null;
+            let currentCall = null;
+            let localStream = null;
+
+            // Statusaktualisierung
+            function updateStatus(msg) {
+                statusDiv.textContent = 'Status: ' + msg;
+                console.log(msg);
+            }
+
+            // Initialisierung: Lokale Kamera abrufen und PeerJS starten
+            async function init() {
+                try {
+                    // 1. Kamera und Mikrofon anfordern
+                    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                    localVideo.srcObject = localStream;
+                    updateStatus('Lokaler Stream bereit, verbinde mit Signalisierungsserver...');
+
+                    // 2. PeerJS-Instanz erstellen (verwendet standardmäßig den kostenlosen Cloud-Server von PeerJS)
+                    peer = new Peer(); 
+
+                    // Wenn die ID vom Server zugewiesen wurde
+                    peer.on('open', (id) => {
+                        myIdSpan.textContent = id;
+                        updateStatus('Bereit. Warten auf Anruf oder geben Sie eine Peer-ID ein.');
+                        callBtn.disabled = false;
+                    });
+
+                    // Auf eingehenden Anruf warten
+                    peer.on('call', (call) => {
+                        updateStatus('Eingehender Anruf, wird angenommen...');
+                        // Eingehenden Anruf automatisch annehmen und lokalen Stream übergeben
+                        call.answer(localStream);
+                        handleCall(call);
+                    });
+
+                    peer.on('error', (err) => {
+                        updateStatus('Fehler: ' + err.type);
+                        console.error(err);
+                    });
+
+                } catch (err) {
+                    updateStatus('Kamerazugriff fehlgeschlagen: ' + err.message);
+                    console.error(err);
+                }
+            }
+
+            // Anrufbehandlung
+            function handleCall(call) {
+                currentCall = call;
+                hangupBtn.disabled = false;
+
+                // Wenn der entfernte Stream ankommt
+                call.on('stream', (remoteStream) => {
+                    remoteVideo.srcObject = remoteStream;
+                    updateStatus('Verbunden, empfange entfernten Stream.');
+                });
+
+                // Anruf beendet
+                call.on('close', () => {
+                    updateStatus('Anruf beendet.');
+                    remoteVideo.srcObject = null;
+                    currentCall = null;
+                    hangupBtn.disabled = true;
+                });
+
+                call.on('error', (err) => {
+                    updateStatus('Anruffehler: ' + err);
+                });
+            }
+
+            // Anruf initiieren
+            callBtn.addEventListener('click', () => {
+                const remoteId = peerIdInput.value.trim();
+                if (!remoteId) {
+                    alert('Bitte geben Sie die Peer-ID der Gegenstelle ein');
+                    return;
+                }
+                if (!peer || !peer.open) {
+                    alert('Signalisierungsverbindung noch nicht bereit, bitte warten');
+                    return;
+                }
+                updateStatus('Rufe ' + remoteId + ' an...');
+                const call = peer.call(remoteId, localStream);
+                if (call) {
+                    handleCall(call);
+                }
+            });
+
+            // Auflegen
+            hangupBtn.addEventListener('click', () => {
+                if (currentCall) {
+                    currentCall.close();
+                }
+                remoteVideo.srcObject = null;
+                currentCall = null;
+                hangupBtn.disabled = true;
+                updateStatus('Anruf manuell beendet.');
+            });
+
+            // Initialisierung starten
+            init();
+        })();
+    </script>
+</body>
+</html>
